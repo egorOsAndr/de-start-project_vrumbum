@@ -102,12 +102,13 @@ INSERT INTO car_shop.models (
 SELECT
 	DISTINCT
 	b.id,
-	SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
+	TRIM(SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
 		SPLIT_PART(SPLIT_PART(auto, ', ', 1),
-		' ', 2))), ', ', 1) AS name_model
+		' ', 2))), ', ', 1)) AS name_model
 FROM
 	raw_date.sales AS a
-	JOIN car_shop.brands AS b ON SPLIT_PART(a.auto, ' ', 1) = b.brand_name;
+	-- использовал RIGHT, важно так как нужны все модели у которых есть запись о бренде
+	RIGHT JOIN car_shop.brands AS b ON SPLIT_PART(a.auto, ' ', 1) = b.brand_name;
 
 
 INSERT INTO car_shop.cars (
@@ -121,18 +122,20 @@ SELECT
 	s.price,
 	COALESCE(NULLIF(NULLIF(s.gasoline_consumption, 'null'), '')::NUMERIC(5, 2), NUll) AS gasoline_consumption
 FROM
-	raw_date.sales s
-	JOIN car_shop.models m 
-	ON SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
+	raw_date.sales AS s
+	-- выбрал тип соединения rigth так как нам важны все записи у которых есть
+	-- запись в таблице models
+	RIGHT JOIN car_shop.models AS m 
+	ON TRIM(SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
 		SPLIT_PART(SPLIT_PART(auto, ', ', 1),
-		' ', 2))), ', ', 1) = m.name_model;
+		' ', 2))), ', ', 1)) = m.name_model;
 
 
 INSERT INTO car_shop.colors (
 	color_name
 )
 SELECT
-	DISTINCT SUBSTR(auto, STRPOS(auto, ',') + 2) AS color_name
+	DISTINCT TRIM(SUBSTR(auto, STRPOS(auto, ',') + 2)) AS color_name
 FROM
 	raw_date.sales;
 
@@ -144,15 +147,15 @@ SELECT
 	DISTINCT
 	c.id AS car_id,
 	col.id AS color_id
-FROM raw_date.sales s 
-	JOIN car_shop.models m ON m.name_model = 
-		SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
+FROM raw_date.sales AS s 
+	RIGHT JOIN car_shop.models AS m ON m.name_model = 
+		TRIM(SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
 		SPLIT_PART(SPLIT_PART(auto, ', ', 1),
-		' ', 2))), ', ', 1)
-	JOIN car_shop.cars c ON c.model_id = m.id
+		' ', 2))), ', ', 1))
+	INNER JOIN car_shop.cars AS c ON c.model_id = m.id
 		AND c.price = s.price
-	JOIN car_shop.colors col
-		ON col.color_name = SUBSTR(auto, STRPOS(auto, ',') + 2);
+	RIGHT JOIN car_shop.colors AS col
+		ON col.color_name = TRIM(SUBSTR(auto, STRPOS(auto, ',') + 2));
 
 		
 INSERT INTO car_shop.clients (
@@ -161,8 +164,8 @@ INSERT INTO car_shop.clients (
 )
 SELECT
 	DISTINCT
-	SPLIT_PART(person_name, ' ', 1) AS first_name,
-	SPLIT_PART(person_name, ' ', 2) AS last_name
+	TRIM(SPLIT_PART(person_name, ' ', 1)) AS first_name,
+	TRIM(SPLIT_PART(person_name, ' ', 2)) AS last_name
 FROM 
 	raw_date.sales;
 
@@ -173,10 +176,10 @@ INSERT INTO car_shop.phone_numbers (
 )
 SELECT DISTINCT
 	c.id,
-	REGEXP_REPLACE(SPLIT_PART(s.phone, 'x', 1), '[()-]', '', 'g') AS phone
-FROM car_shop.clients c 
-	JOIN raw_date.sales s ON c.first_name = SPLIT_PART(s.person_name, ' ', 1)
-	AND c.last_name = SPLIT_PART(person_name, ' ', 2);
+	TRIM(REGEXP_REPLACE(SPLIT_PART(s.phone, 'x', 1), '[()-]', '', 'g')) AS phone
+FROM car_shop.clients AS c 
+	LEFT JOIN raw_date.sales AS s ON c.first_name = TRIM(SPLIT_PART(s.person_name, ' ', 1))
+	AND c.last_name = TRIM(SPLIT_PART(person_name, ' ', 2));
 
 	
 INSERT INTO car_shop.phone_extensions (
@@ -185,12 +188,12 @@ INSERT INTO car_shop.phone_extensions (
 	)
 SELECT
 	DISTINCT ON
-	(pn.id,
-	NULLIF(SPLIT_PART(s.phone, 'x', 2), ''))
+	(TRIM(pn.id,
+	NULLIF(SPLIT_PART(s.phone, 'x', 2), '')))
 	pn.id,
-	NULLIF(SPLIT_PART(s.phone, 'x', 2), '') AS extension
+	TRIM(NULLIF(SPLIT_PART(s.phone, 'x', 2), '')) AS extension
 FROM car_shop.phone_numbers AS pn
-	JOIN raw_date.sales AS s ON pn.phone = REGEXP_REPLACE(SPLIT_PART(s.phone, 'x', 1), '[()-]', '', 'g')
+	LEFT JOIN raw_date.sales AS s ON pn.phone = TRIM(REGEXP_REPLACE(SPLIT_PART(s.phone, 'x', 1), '[()-]', '', 'g'))
 WHERE
 	NULLIF(SPLIT_PART(s.phone, 'x', 2), '') IS NOT NULL;
 
@@ -211,8 +214,8 @@ FROM
 		-- применил оконную функцию для того чтобы выбрать самые последние скидки пользователей
 		ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY s.date DESC) AS rn
 	FROM car_shop.clients c
-		JOIN raw_date.sales s ON c.first_name = SPLIT_PART(s.person_name, ' ', 1)
-		AND c.last_name = SPLIT_PART(person_name, ' ', 2)
+		LEFT JOIN raw_date.sales s ON c.first_name = TRIM(SPLIT_PART(s.person_name, ' ', 1))
+		AND c.last_name = TRIM(SPLIT_PART(person_name, ' ', 2))
 	WHERE s.discount != 0
 	) AS tb
 WHERE rn = 1;
@@ -229,14 +232,14 @@ SELECT
 	c.id,
 	s.date
 FROM raw_date.sales s 
-	JOIN car_shop.models m ON m.name_model = 
-		SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
+	RIGHT JOIN car_shop.models m ON m.name_model = 
+		TRIM(SPLIT_PART(SUBSTR(auto, STRPOS(auto, 
 		SPLIT_PART(SPLIT_PART(auto, ', ', 1),
-		' ', 2))), ', ', 1)
-	JOIN car_shop.cars car
+		' ', 2))), ', ', 1))
+	RIGHT JOIN car_shop.cars car
 		ON car.price = s.price
-	JOIN car_shop.clients c ON c.first_name = SPLIT_PART(s.person_name, ' ', 1)
-	AND c.last_name = SPLIT_PART(person_name, ' ', 2);
+	RIGHT JOIN car_shop.clients c ON c.first_name = TRIM(SPLIT_PART(s.person_name, ' ', 1))
+	AND c.last_name = TRIM(SPLIT_PART(person_name, ' ', 2));
 
 
 
